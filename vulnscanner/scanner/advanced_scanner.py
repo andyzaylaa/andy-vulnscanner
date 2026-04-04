@@ -199,7 +199,21 @@ class AdvancedScanner:
         self, url: str, method: str = "GET", data: Optional[bytes] = None,
         headers: Optional[dict] = None, timeout: Optional[float] = None,
     ) -> tuple[int, dict, str]:
-        """Make an HTTP request and return (status, headers, body)."""
+        """Make an HTTP request and return (status, headers, body).
+
+        Headers are returned as a dict. Use ``_make_request_raw`` if you
+        need access to duplicate header values (e.g. multiple Set-Cookie).
+        """
+        status, raw_headers, body = self._make_request_raw(
+            url, method=method, data=data, headers=headers, timeout=timeout,
+        )
+        return status, dict(raw_headers) if raw_headers else {}, body
+
+    def _make_request_raw(
+        self, url: str, method: str = "GET", data: Optional[bytes] = None,
+        headers: Optional[dict] = None, timeout: Optional[float] = None,
+    ) -> tuple[int, object, str]:
+        """Make an HTTP request, preserving the raw HTTPMessage headers."""
         ctx = ssl.create_default_context()
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
@@ -219,15 +233,14 @@ class AdvancedScanner:
         try:
             with urllib.request.urlopen(req, timeout=tout, context=ctx) as resp:
                 body = resp.read().decode("utf-8", errors="replace")
-                resp_headers = dict(resp.headers)
-                return resp.status, resp_headers, body
+                return resp.status, resp.headers, body
         except urllib.error.HTTPError as e:
             body = ""
             try:
                 body = e.read().decode("utf-8", errors="replace")
             except Exception:
                 pass
-            return e.code, dict(e.headers), body
+            return e.code, e.headers, body
         except Exception:
             return 0, {}, ""
 
@@ -586,21 +599,21 @@ class AdvancedScanner:
             if status == 0 or not body:
                 continue
 
-            # Find all forms
+            # Find all forms (capture the tag and content separately)
             forms = re.findall(
-                r'<form[^>]*>(.*?)</form>', body,
+                r'(<form[^>]*>)(.*?)</form>', body,
                 re.IGNORECASE | re.DOTALL,
             )
 
-            for form_html in forms:
+            for form_tag_str, form_html in forms:
                 forms_found += 1
 
-                # Check if form has POST method
-                form_tag = re.search(
-                    r'<form[^>]*method=["\']?post["\']?',
-                    body, re.IGNORECASE,
+                # Check if this specific form has POST method
+                is_post = re.search(
+                    r'method=["\']?post["\']?',
+                    form_tag_str, re.IGNORECASE,
                 )
-                if not form_tag:
+                if not is_post:
                     continue
 
                 # Check for CSRF token
@@ -686,8 +699,9 @@ class AdvancedScanner:
                     )
 
                     # Don't follow redirects
+                    https_handler = urllib.request.HTTPSHandler(context=ctx)
                     opener = urllib.request.build_opener(
-                        _NoRedirectHandler(),
+                        https_handler, _NoRedirectHandler(),
                     )
                     resp = opener.open(req, timeout=self.timeout)
                     location = resp.headers.get("Location", "")
@@ -877,18 +891,19 @@ class AdvancedScanner:
 
     def _scan_cookies(self, url: str, result: AdvScanResult):
         """Check cookie security flags."""
-        status, resp_headers, _ = self._make_request(url)
+        status, raw_headers, _ = self._make_request_raw(url)
         if status == 0:
             self._log("  Could not reach target.", "error")
             return
 
-        # Get all Set-Cookie headers
-        raw_headers = resp_headers
+        # Get all Set-Cookie headers (use get_all to avoid dict collapse)
         cookies_found = []
-
-        for key, value in raw_headers.items():
-            if key.lower() == "set-cookie":
-                cookies_found.append(value)
+        if hasattr(raw_headers, "get_all"):
+            cookies_found = raw_headers.get_all("Set-Cookie") or []
+        else:
+            for key, value in raw_headers.items():
+                if key.lower() == "set-cookie":
+                    cookies_found.append(value)
 
         if not cookies_found:
             self._log("  No cookies found in response.", "info")
