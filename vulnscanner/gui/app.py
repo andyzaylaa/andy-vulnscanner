@@ -9,6 +9,7 @@ from typing import Optional
 from vulnscanner.reports.exporter import ReportExporter
 from vulnscanner.scanner.port_scanner import PortResult, PortScanner, ScanResult
 from vulnscanner.scanner.vuln_checker import VulnChecker, Vulnerability
+from vulnscanner.scanner.advanced_scanner import AdvancedScanner, AdvFinding, AdvScanResult
 from vulnscanner.scanner.web_scanner import WebFinding, WebScanner, WebScanResult
 
 
@@ -50,9 +51,11 @@ class AndyVulnScanner(tk.Tk):
         self.scanner = PortScanner()
         self.vuln_checker = VulnChecker()
         self.web_scanner = WebScanner()
+        self.adv_scanner = AdvancedScanner()
         self.current_result: Optional[ScanResult] = None
         self.current_vulns: list[Vulnerability] = []
         self.current_web_result: Optional[WebScanResult] = None
+        self.current_adv_result: Optional[AdvScanResult] = None
         self.is_scanning = False
         self.scan_thread: Optional[threading.Thread] = None
 
@@ -300,12 +303,17 @@ class AndyVulnScanner(tk.Tk):
         self.notebook.add(self.web_frame, text="  Web Scanner  ")
         self._build_web_tab()
 
-        # Tab 4: Console Log
+        # Tab 4: Advanced Scanner
+        self.adv_frame = ttk.Frame(self.notebook)
+        self.notebook.add(self.adv_frame, text="  Advanced Scan  ")
+        self._build_adv_tab()
+
+        # Tab 5: Console Log
         self.console_frame = ttk.Frame(self.notebook)
         self.notebook.add(self.console_frame, text="  Console  ")
         self._build_console_tab()
 
-        # Tab 5: Export
+        # Tab 6: Export
         self.export_frame = ttk.Frame(self.notebook)
         self.notebook.add(self.export_frame, text="  Export  ")
         self._build_export_tab()
@@ -495,6 +503,118 @@ class AndyVulnScanner(tk.Tk):
 
         # Bind selection
         self.web_tree.bind("<<TreeviewSelect>>", self._on_web_finding_select)
+
+    def _build_adv_tab(self):
+        """Build the advanced scanner tab (SQLi, XSS, CSRF, etc.)."""
+        # Top config bar
+        adv_config = ttk.Frame(self.adv_frame, style="Card.TFrame")
+        adv_config.pack(fill=tk.X, padx=5, pady=(5, 3))
+
+        config_inner = ttk.Frame(adv_config, style="Card.TFrame")
+        config_inner.pack(fill=tk.X, padx=10, pady=8)
+
+        ttk.Label(config_inner, text="URL:", style="Card.TLabel",
+                  font=("Segoe UI", 10, "bold")).pack(side=tk.LEFT)
+        self.adv_url_entry = ttk.Entry(config_inner, width=35, font=("Consolas", 11))
+        self.adv_url_entry.pack(side=tk.LEFT, padx=(8, 10))
+        self.adv_url_entry.insert(0, "https://example.com")
+        self.adv_url_entry.bind("<Return>", lambda e: self._start_adv_scan())
+
+        self.adv_scan_button = ttk.Button(
+            config_inner, text="Run Advanced Scan",
+            style="Scan.TButton", command=self._start_adv_scan,
+        )
+        self.adv_scan_button.pack(side=tk.RIGHT, padx=(5, 0))
+
+        self.adv_stop_button = ttk.Button(
+            config_inner, text="Stop",
+            style="Stop.TButton", command=self._stop_adv_scan,
+            state="disabled",
+        )
+        self.adv_stop_button.pack(side=tk.RIGHT, padx=(5, 0))
+
+        # Scan type checkboxes
+        checks_frame = ttk.Frame(self.adv_frame, style="Card.TFrame")
+        checks_frame.pack(fill=tk.X, padx=5, pady=(0, 3))
+
+        checks_inner = ttk.Frame(checks_frame, style="Card.TFrame")
+        checks_inner.pack(fill=tk.X, padx=10, pady=5)
+
+        self.adv_sqli_var = tk.BooleanVar(value=True)
+        self.adv_xss_var = tk.BooleanVar(value=True)
+        self.adv_csrf_var = tk.BooleanVar(value=True)
+        self.adv_redirect_var = tk.BooleanVar(value=True)
+        self.adv_cors_var = tk.BooleanVar(value=True)
+        self.adv_cookie_var = tk.BooleanVar(value=True)
+
+        check_opts = [
+            ("SQL Injection", self.adv_sqli_var),
+            ("XSS", self.adv_xss_var),
+            ("CSRF", self.adv_csrf_var),
+            ("Open Redirect", self.adv_redirect_var),
+            ("CORS", self.adv_cors_var),
+            ("Cookies", self.adv_cookie_var),
+        ]
+        for label, var in check_opts:
+            cb = tk.Checkbutton(
+                checks_inner, text=label, variable=var,
+                bg=DarkTheme.BG_SECONDARY, fg=DarkTheme.FG_PRIMARY,
+                selectcolor=DarkTheme.BG_INPUT,
+                activebackground=DarkTheme.BG_SECONDARY,
+                activeforeground=DarkTheme.FG_PRIMARY,
+                font=("Segoe UI", 9),
+            )
+            cb.pack(side=tk.LEFT, padx=(0, 12))
+
+        # Summary bar
+        self.adv_summary = ttk.Label(
+            self.adv_frame, text="Select scan types and click Run Advanced Scan.",
+            font=("Segoe UI", 10), foreground=DarkTheme.FG_SECONDARY,
+        )
+        self.adv_summary.pack(fill=tk.X, padx=10, pady=(5, 3))
+
+        # Findings treeview
+        columns = ("severity", "scanner", "title", "parameter", "description")
+        self.adv_tree = ttk.Treeview(
+            self.adv_frame, columns=columns, show="headings", height=10,
+        )
+
+        self.adv_tree.heading("severity", text="Severity")
+        self.adv_tree.heading("scanner", text="Scanner")
+        self.adv_tree.heading("title", text="Finding")
+        self.adv_tree.heading("parameter", text="Parameter")
+        self.adv_tree.heading("description", text="Details")
+
+        self.adv_tree.column("severity", width=70, anchor="center")
+        self.adv_tree.column("scanner", width=70, anchor="center")
+        self.adv_tree.column("title", width=200)
+        self.adv_tree.column("parameter", width=80, anchor="center")
+        self.adv_tree.column("description", width=300)
+
+        self.adv_tree.tag_configure("Critical", foreground="#ff4444")
+        self.adv_tree.tag_configure("High", foreground="#ff8800")
+        self.adv_tree.tag_configure("Medium", foreground="#ffcc00")
+        self.adv_tree.tag_configure("Low", foreground="#00aaff")
+        self.adv_tree.tag_configure("Info", foreground="#00cc00")
+
+        adv_scroll = ttk.Scrollbar(self.adv_frame, orient=tk.VERTICAL,
+                                    command=self.adv_tree.yview)
+        self.adv_tree.configure(yscrollcommand=adv_scroll.set)
+
+        self.adv_tree.pack(fill=tk.BOTH, expand=True, padx=10, side=tk.LEFT)
+        adv_scroll.pack(fill=tk.Y, side=tk.RIGHT, padx=(0, 10))
+
+        # Detail panel at bottom
+        self.adv_detail = scrolledtext.ScrolledText(
+            self.adv_frame, height=5, wrap=tk.WORD,
+            bg=DarkTheme.BG_SECONDARY, fg=DarkTheme.FG_PRIMARY,
+            font=("Consolas", 10), insertbackground=DarkTheme.FG_PRIMARY,
+            relief="flat", state="disabled",
+        )
+        self.adv_detail.pack(fill=tk.X, padx=10, pady=(3, 5), side=tk.BOTTOM)
+
+        # Bind selection
+        self.adv_tree.bind("<<TreeviewSelect>>", self._on_adv_finding_select)
 
     def _build_console_tab(self):
         """Build the console/log tab."""
@@ -791,6 +911,39 @@ class AndyVulnScanner(tk.Tk):
             self._log("\nScan stopped by user.", "warning")
             self.status_label.configure(text="Scan stopped")
 
+    def _on_adv_finding_select(self, event=None):
+        """Show advanced finding details when selected."""
+        selection = self.adv_tree.selection()
+        if not selection or not self.current_adv_result:
+            return
+
+        item = self.adv_tree.item(selection[0])
+        values = item["values"]
+        if not values:
+            return
+
+        for finding in self.current_adv_result.findings:
+            if finding.title == values[2]:
+                self.adv_detail.configure(state="normal")
+                self.adv_detail.delete("1.0", tk.END)
+                detail = (
+                    f"Title: {finding.title}\n"
+                    f"Severity: {finding.severity}\n"
+                    f"Scanner: {finding.scanner.upper()}\n"
+                )
+                if finding.parameter:
+                    detail += f"Parameter: {finding.parameter}\n"
+                detail += f"\nDescription:\n{finding.description}\n"
+                if finding.payload:
+                    detail += f"\nPayload: {finding.payload}"
+                if finding.evidence:
+                    detail += f"\nEvidence: {finding.evidence}"
+                if finding.recommendation:
+                    detail += f"\n\nRecommendation:\n{finding.recommendation}"
+                self.adv_detail.insert("1.0", detail)
+                self.adv_detail.configure(state="disabled")
+                break
+
     # ── Web Scanning ─────────────────────────────────────────────────
 
     def _start_web_scan(self):
@@ -891,6 +1044,175 @@ class AndyVulnScanner(tk.Tk):
             self.web_scanner.stop()
             self._log("\nWeb scan stopped by user.", "warning")
             self.status_label.configure(text="Web scan stopped")
+
+    # ── Advanced Scanning ─────────────────────────────────────────────
+
+    def _start_adv_scan(self):
+        """Start an advanced vulnerability scan."""
+        url = self.adv_url_entry.get().strip()
+        if not url:
+            messagebox.showwarning("Warning", "Please enter a URL to scan.")
+            return
+
+        if self.is_scanning:
+            return
+
+        self.is_scanning = True
+        self.adv_scan_button.configure(state="disabled")
+        self.scan_button.configure(state="disabled")
+        self.web_scan_button.configure(state="disabled")
+        self.adv_stop_button.configure(state="normal")
+        self.progress_bar["value"] = 0
+
+        # Clear previous results
+        for item in self.adv_tree.get_children():
+            self.adv_tree.delete(item)
+        self.adv_summary.configure(
+            text="Scanning...", foreground=DarkTheme.FG_SECONDARY,
+        )
+        self.adv_detail.configure(state="normal")
+        self.adv_detail.delete("1.0", tk.END)
+        self.adv_detail.configure(state="disabled")
+        self.current_adv_result = None
+
+        # Clear console
+        self.console_text.delete("1.0", tk.END)
+
+        # Log start
+        self._log(f"{'=' * 55}", "header")
+        self._log("  ANDY VULNSCANNER - Advanced Scan", "header")
+        self._log(f"{'=' * 55}", "header")
+        self._log(f"URL: {url}", "info")
+
+        scanners = []
+        if self.adv_sqli_var.get():
+            scanners.append("SQLi")
+        if self.adv_xss_var.get():
+            scanners.append("XSS")
+        if self.adv_csrf_var.get():
+            scanners.append("CSRF")
+        if self.adv_redirect_var.get():
+            scanners.append("Redirect")
+        if self.adv_cors_var.get():
+            scanners.append("CORS")
+        if self.adv_cookie_var.get():
+            scanners.append("Cookies")
+        self._log(f"Scanners: {', '.join(scanners)}", "info")
+        self._log("")
+        self.status_label.configure(text=f"Advanced scanning {url}...")
+
+        # Configure scanner
+        self.adv_scanner = AdvancedScanner(
+            on_finding=self._on_adv_finding,
+            on_progress=self._on_scan_progress,
+            on_log=self._log,
+        )
+
+        # Run scan in background thread
+        self.scan_thread = threading.Thread(
+            target=self._run_adv_scan,
+            args=(
+                url,
+                self.adv_sqli_var.get(),
+                self.adv_xss_var.get(),
+                self.adv_csrf_var.get(),
+                self.adv_redirect_var.get(),
+                self.adv_cors_var.get(),
+                self.adv_cookie_var.get(),
+            ),
+            daemon=True,
+        )
+        self.scan_thread.start()
+
+    def _run_adv_scan(
+        self, url: str, sqli: bool, xss: bool, csrf: bool,
+        redirect: bool, cors: bool, cookies: bool,
+    ):
+        """Run the advanced scan in a background thread."""
+        start_time = time.time()
+
+        try:
+            result = self.adv_scanner.scan(
+                url, sqli=sqli, xss=xss, csrf=csrf,
+                open_redirect=redirect, cors=cors, cookies=cookies,
+            )
+            result.scan_time = time.time() - start_time
+            self.current_adv_result = result
+
+            self._log("")
+            self._log(f"Advanced scan completed in {result.scan_time:.2f}s", "success")
+            self._log(f"Findings: {len(result.findings)}", "warning" if result.findings else "success")
+            self._log(f"Parameters tested: {result.parameters_tested}", "info")
+            if result.forms_found:
+                self._log(f"Forms found: {result.forms_found}", "info")
+
+            self.after(0, lambda: self._display_adv_findings(result))
+
+        except Exception as exc:
+            self._log(f"Error: {exc}", "error")
+            msg = str(exc)
+            self.after(0, lambda: messagebox.showerror("Advanced Scan Error", msg))
+        finally:
+            self.after(0, self._adv_scan_finished)
+
+    def _adv_scan_finished(self):
+        """Called when advanced scan is complete (on main thread)."""
+        self.is_scanning = False
+        self.adv_scan_button.configure(state="normal")
+        self.scan_button.configure(state="normal")
+        self.web_scan_button.configure(state="normal")
+        self.adv_stop_button.configure(state="disabled")
+        self.progress_bar["value"] = 100
+        self.status_label.configure(text="Advanced scan complete")
+
+    def _stop_adv_scan(self):
+        """Stop the running advanced scan."""
+        if self.is_scanning:
+            self.adv_scanner.stop()
+            self._log("\nAdvanced scan stopped by user.", "warning")
+            self.status_label.configure(text="Advanced scan stopped")
+
+    def _on_adv_finding(self, finding: AdvFinding):
+        """Callback when an advanced finding is discovered."""
+        self.after(0, lambda f=finding: self.adv_tree.insert(
+            "", tk.END,
+            values=(f.severity, f.scanner.upper(), f.title,
+                    f.parameter or "-", f.description[:100]),
+            tags=(f.severity,),
+        ))
+
+    def _display_adv_findings(self, result: AdvScanResult):
+        """Display all advanced scan findings."""
+        for item in self.adv_tree.get_children():
+            self.adv_tree.delete(item)
+
+        for finding in result.findings:
+            self.adv_tree.insert(
+                "", tk.END,
+                values=(finding.severity, finding.scanner.upper(),
+                        finding.title, finding.parameter or "-",
+                        finding.description[:100]),
+                tags=(finding.severity,),
+            )
+
+        severity_counts = {}
+        for f in result.findings:
+            severity_counts[f.severity] = severity_counts.get(f.severity, 0) + 1
+
+        counts_str = ", ".join(
+            f"{count} {sev}" for sev, count in severity_counts.items()
+        )
+
+        info_parts = [f"URL: {result.url}"]
+        info_parts.append(f"Findings: {len(result.findings)}")
+        if counts_str:
+            info_parts.append(f"({counts_str})")
+        info_parts.append(f"Time: {result.scan_time:.2f}s")
+
+        self.adv_summary.configure(
+            text="  |  ".join(info_parts),
+            foreground=DarkTheme.FG_WARNING if result.findings else DarkTheme.FG_SUCCESS,
+        )
 
     def _on_web_finding(self, finding: WebFinding):
         """Callback when a web finding is discovered (from scanner thread)."""
@@ -1104,6 +1426,7 @@ class AndyVulnScanner(tk.Tk):
             if messagebox.askyesno("Confirm", "A scan is in progress. Stop and exit?"):
                 self.scanner.stop()
                 self.web_scanner.stop()
+                self.adv_scanner.stop()
                 self.destroy()
         else:
             self.destroy()
