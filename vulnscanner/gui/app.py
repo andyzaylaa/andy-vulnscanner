@@ -9,6 +9,7 @@ from typing import Optional
 from vulnscanner.reports.exporter import ReportExporter
 from vulnscanner.scanner.port_scanner import PortResult, PortScanner, ScanResult
 from vulnscanner.scanner.vuln_checker import VulnChecker, Vulnerability
+from vulnscanner.scanner.web_scanner import WebFinding, WebScanner, WebScanResult
 
 
 class DarkTheme:
@@ -48,8 +49,10 @@ class AndyVulnScanner(tk.Tk):
         # State
         self.scanner = PortScanner()
         self.vuln_checker = VulnChecker()
+        self.web_scanner = WebScanner()
         self.current_result: Optional[ScanResult] = None
         self.current_vulns: list[Vulnerability] = []
+        self.current_web_result: Optional[WebScanResult] = None
         self.is_scanning = False
         self.scan_thread: Optional[threading.Thread] = None
 
@@ -292,12 +295,17 @@ class AndyVulnScanner(tk.Tk):
         self.notebook.add(self.vulns_frame, text="  Vulnerabilities  ")
         self._build_vulns_tab()
 
-        # Tab 3: Console Log
+        # Tab 3: Web Scanner
+        self.web_frame = ttk.Frame(self.notebook)
+        self.notebook.add(self.web_frame, text="  Web Scanner  ")
+        self._build_web_tab()
+
+        # Tab 4: Console Log
         self.console_frame = ttk.Frame(self.notebook)
         self.notebook.add(self.console_frame, text="  Console  ")
         self._build_console_tab()
 
-        # Tab 4: Export
+        # Tab 5: Export
         self.export_frame = ttk.Frame(self.notebook)
         self.notebook.add(self.export_frame, text="  Export  ")
         self._build_export_tab()
@@ -397,6 +405,96 @@ class AndyVulnScanner(tk.Tk):
         self.vulns_tree.tag_configure("Medium", foreground="#ffcc00")
         self.vulns_tree.tag_configure("Low", foreground="#00aaff")
         self.vulns_tree.tag_configure("Info", foreground="#00cc00")
+
+    def _build_web_tab(self):
+        """Build the website scanner tab."""
+        # Top config bar
+        web_config = ttk.Frame(self.web_frame, style="Card.TFrame")
+        web_config.pack(fill=tk.X, padx=5, pady=(5, 3))
+
+        config_inner = ttk.Frame(web_config, style="Card.TFrame")
+        config_inner.pack(fill=tk.X, padx=10, pady=8)
+
+        ttk.Label(config_inner, text="URL:", style="Card.TLabel",
+                  font=("Segoe UI", 10, "bold")).pack(side=tk.LEFT)
+        self.web_url_entry = ttk.Entry(config_inner, width=40, font=("Consolas", 11))
+        self.web_url_entry.pack(side=tk.LEFT, padx=(8, 15))
+        self.web_url_entry.insert(0, "https://example.com")
+        self.web_url_entry.bind("<Return>", lambda e: self._start_web_scan())
+
+        self.web_dir_check_var = tk.BooleanVar(value=True)
+        dir_check = tk.Checkbutton(
+            config_inner, text="Directory Scan",
+            variable=self.web_dir_check_var,
+            bg=DarkTheme.BG_SECONDARY, fg=DarkTheme.FG_PRIMARY,
+            selectcolor=DarkTheme.BG_INPUT,
+            activebackground=DarkTheme.BG_SECONDARY,
+            activeforeground=DarkTheme.FG_PRIMARY,
+            font=("Segoe UI", 10),
+        )
+        dir_check.pack(side=tk.LEFT, padx=(0, 15))
+
+        self.web_scan_button = ttk.Button(
+            config_inner, text="Scan Website",
+            style="Scan.TButton", command=self._start_web_scan,
+        )
+        self.web_scan_button.pack(side=tk.RIGHT, padx=(5, 0))
+
+        self.web_stop_button = ttk.Button(
+            config_inner, text="Stop",
+            style="Stop.TButton", command=self._stop_web_scan,
+            state="disabled",
+        )
+        self.web_stop_button.pack(side=tk.RIGHT, padx=(5, 0))
+
+        # Summary bar
+        self.web_summary = ttk.Label(
+            self.web_frame, text="Enter a URL and click Scan Website.",
+            font=("Segoe UI", 10), foreground=DarkTheme.FG_SECONDARY,
+        )
+        self.web_summary.pack(fill=tk.X, padx=10, pady=(5, 3))
+
+        # Findings treeview
+        columns = ("severity", "category", "title", "description")
+        self.web_tree = ttk.Treeview(
+            self.web_frame, columns=columns, show="headings", height=12,
+        )
+
+        self.web_tree.heading("severity", text="Severity")
+        self.web_tree.heading("category", text="Category")
+        self.web_tree.heading("title", text="Finding")
+        self.web_tree.heading("description", text="Details")
+
+        self.web_tree.column("severity", width=80, anchor="center")
+        self.web_tree.column("category", width=90, anchor="center")
+        self.web_tree.column("title", width=250)
+        self.web_tree.column("description", width=350)
+
+        # Tags for severity colors
+        self.web_tree.tag_configure("Critical", foreground="#ff4444")
+        self.web_tree.tag_configure("High", foreground="#ff8800")
+        self.web_tree.tag_configure("Medium", foreground="#ffcc00")
+        self.web_tree.tag_configure("Low", foreground="#00aaff")
+        self.web_tree.tag_configure("Info", foreground="#00cc00")
+
+        web_scroll = ttk.Scrollbar(self.web_frame, orient=tk.VERTICAL,
+                                    command=self.web_tree.yview)
+        self.web_tree.configure(yscrollcommand=web_scroll.set)
+
+        self.web_tree.pack(fill=tk.BOTH, expand=True, padx=10, side=tk.LEFT)
+        web_scroll.pack(fill=tk.Y, side=tk.RIGHT, padx=(0, 10))
+
+        # Detail panel at bottom
+        self.web_detail = scrolledtext.ScrolledText(
+            self.web_frame, height=5, wrap=tk.WORD,
+            bg=DarkTheme.BG_SECONDARY, fg=DarkTheme.FG_PRIMARY,
+            font=("Consolas", 10), insertbackground=DarkTheme.FG_PRIMARY,
+            relief="flat", state="disabled",
+        )
+        self.web_detail.pack(fill=tk.X, padx=10, pady=(3, 5), side=tk.BOTTOM)
+
+        # Bind selection
+        self.web_tree.bind("<<TreeviewSelect>>", self._on_web_finding_select)
 
     def _build_console_tab(self):
         """Build the console/log tab."""
@@ -507,6 +605,36 @@ class AndyVulnScanner(tk.Tk):
                 )
                 self.vuln_detail.insert("1.0", detail)
                 self.vuln_detail.configure(state="disabled")
+                break
+
+    def _on_web_finding_select(self, event=None):
+        """Show web finding details when selected."""
+        selection = self.web_tree.selection()
+        if not selection or not self.current_web_result:
+            return
+
+        item = self.web_tree.item(selection[0])
+        values = item["values"]
+        if not values:
+            return
+
+        # Find the matching finding
+        for finding in self.current_web_result.findings:
+            if finding.title == values[2]:
+                self.web_detail.configure(state="normal")
+                self.web_detail.delete("1.0", tk.END)
+                detail = (
+                    f"Title: {finding.title}\n"
+                    f"Severity: {finding.severity}\n"
+                    f"Category: {finding.category.upper()}\n"
+                    f"\nDescription:\n{finding.description}\n"
+                )
+                if finding.recommendation:
+                    detail += f"\nRecommendation:\n{finding.recommendation}"
+                if finding.detail:
+                    detail += f"\n\nDetail: {finding.detail}"
+                self.web_detail.insert("1.0", detail)
+                self.web_detail.configure(state="disabled")
                 break
 
     # ── Scanning ─────────────────────────────────────────────────────
@@ -662,6 +790,152 @@ class AndyVulnScanner(tk.Tk):
             self.scanner.stop()
             self._log("\nScan stopped by user.", "warning")
             self.status_label.configure(text="Scan stopped")
+
+    # ── Web Scanning ─────────────────────────────────────────────────
+
+    def _start_web_scan(self):
+        """Start a website vulnerability scan."""
+        url = self.web_url_entry.get().strip()
+        if not url:
+            messagebox.showwarning("Warning", "Please enter a URL to scan.")
+            return
+
+        if self.is_scanning:
+            return
+
+        self.is_scanning = True
+        self.web_scan_button.configure(state="disabled")
+        self.scan_button.configure(state="disabled")
+        self.web_stop_button.configure(state="normal")
+        self.progress_bar["value"] = 0
+
+        # Clear previous web results
+        for item in self.web_tree.get_children():
+            self.web_tree.delete(item)
+        self.web_summary.configure(
+            text="Scanning...", foreground=DarkTheme.FG_SECONDARY,
+        )
+        self.web_detail.configure(state="normal")
+        self.web_detail.delete("1.0", tk.END)
+        self.web_detail.configure(state="disabled")
+        self.current_web_result = None
+
+        # Clear console
+        self.console_text.delete("1.0", tk.END)
+
+        # Log start
+        self._log(f"{'=' * 55}", "header")
+        self._log("  ANDY VULNSCANNER - Website Scan", "header")
+        self._log(f"{'=' * 55}", "header")
+        self._log(f"URL: {url}", "info")
+        self._log(f"Directory Scan: {'Yes' if self.web_dir_check_var.get() else 'No'}", "info")
+        self._log("")
+        self.status_label.configure(text=f"Scanning {url}...")
+
+        # Configure web scanner
+        self.web_scanner = WebScanner(
+            on_finding=self._on_web_finding,
+            on_progress=self._on_scan_progress,
+            on_log=self._log,
+        )
+
+        # Run scan in background thread
+        self.scan_thread = threading.Thread(
+            target=self._run_web_scan,
+            args=(url, self.web_dir_check_var.get()),
+            daemon=True,
+        )
+        self.scan_thread.start()
+
+    def _run_web_scan(self, url: str, check_dirs: bool):
+        """Run the website scan in a background thread."""
+        start_time = time.time()
+
+        try:
+            result = self.web_scanner.scan(url, check_dirs=check_dirs)
+            result.scan_time = time.time() - start_time
+            self.current_web_result = result
+
+            # Log summary
+            self._log("")
+            self._log(f"Website scan completed in {result.scan_time:.2f}s", "success")
+            self._log(f"Status: {result.status_code} | Server: {result.server}", "info")
+            self._log(f"Findings: {len(result.findings)}", "warning" if result.findings else "success")
+            if result.technologies:
+                self._log(f"Technologies: {', '.join(result.technologies)}", "info")
+            if result.directories_found:
+                self._log(f"Directories found: {len(result.directories_found)}", "info")
+
+            # Display findings in treeview
+            self.after(0, lambda: self._display_web_findings(result))
+
+        except Exception as exc:
+            self._log(f"Error: {exc}", "error")
+            msg = str(exc)
+            self.after(0, lambda: messagebox.showerror("Web Scan Error", msg))
+        finally:
+            self.after(0, self._web_scan_finished)
+
+    def _web_scan_finished(self):
+        """Called when web scan is complete (on main thread)."""
+        self.is_scanning = False
+        self.web_scan_button.configure(state="normal")
+        self.scan_button.configure(state="normal")
+        self.web_stop_button.configure(state="disabled")
+        self.progress_bar["value"] = 100
+        self.status_label.configure(text="Web scan complete")
+
+    def _stop_web_scan(self):
+        """Stop the running web scan."""
+        if self.is_scanning:
+            self.web_scanner.stop()
+            self._log("\nWeb scan stopped by user.", "warning")
+            self.status_label.configure(text="Web scan stopped")
+
+    def _on_web_finding(self, finding: WebFinding):
+        """Callback when a web finding is discovered (from scanner thread)."""
+        self.after(0, lambda f=finding: self.web_tree.insert(
+            "", tk.END,
+            values=(f.severity, f.category.upper(), f.title,
+                    f.description[:100]),
+            tags=(f.severity,),
+        ))
+
+    def _display_web_findings(self, result: WebScanResult):
+        """Display all web scan findings in the treeview."""
+        # Clear and re-populate (some findings may have been added in real-time)
+        for item in self.web_tree.get_children():
+            self.web_tree.delete(item)
+
+        for finding in result.findings:
+            self.web_tree.insert(
+                "", tk.END,
+                values=(finding.severity, finding.category.upper(),
+                        finding.title, finding.description[:100]),
+                tags=(finding.severity,),
+            )
+
+        # Update summary
+        severity_counts = {}
+        for f in result.findings:
+            severity_counts[f.severity] = severity_counts.get(f.severity, 0) + 1
+
+        counts_str = ", ".join(
+            f"{count} {sev}" for sev, count in severity_counts.items()
+        )
+
+        info_parts = [f"URL: {result.url}"]
+        if result.ip_address:
+            info_parts.append(f"IP: {result.ip_address}")
+        info_parts.append(f"Findings: {len(result.findings)}")
+        if counts_str:
+            info_parts.append(f"({counts_str})")
+        info_parts.append(f"Time: {result.scan_time:.2f}s")
+
+        self.web_summary.configure(
+            text="  |  ".join(info_parts),
+            foreground=DarkTheme.FG_WARNING if result.findings else DarkTheme.FG_SUCCESS,
+        )
 
     def _on_port_found(self, port_result: PortResult):
         """Callback when an open port is found (from scanner thread)."""
@@ -829,6 +1103,7 @@ class AndyVulnScanner(tk.Tk):
         if self.is_scanning:
             if messagebox.askyesno("Confirm", "A scan is in progress. Stop and exit?"):
                 self.scanner.stop()
+                self.web_scanner.stop()
                 self.destroy()
         else:
             self.destroy()
