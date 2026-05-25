@@ -136,8 +136,8 @@ class ProductCatalogService:
         results = []
         try:
             async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
-                url = f"https://www.hikvision.com/en/search/?q={query}"
-                response = await client.get(url, headers={
+                url = "https://www.hikvision.com/en/search/"
+                response = await client.get(url, params={"q": query}, headers={
                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
                 })
                 if response.status_code == 200:

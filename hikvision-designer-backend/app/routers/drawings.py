@@ -96,6 +96,13 @@ async def analyze_drawing(drawing_id: str, db: AsyncSession = Depends(get_db)):
     await db.refresh(drawing)
 
     if "suggested_placements" in analysis:
+        existing = await db.execute(
+            select(SymbolPlacement).where(SymbolPlacement.drawing_id == drawing_id)
+        )
+        for old in existing.scalars().all():
+            await db.delete(old)
+        await db.flush()
+
         for placement_data in analysis["suggested_placements"]:
             placement = SymbolPlacement(
                 drawing_id=drawing_id,
