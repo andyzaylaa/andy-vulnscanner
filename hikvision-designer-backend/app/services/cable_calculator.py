@@ -155,14 +155,13 @@ class CableCalculator:
                         system_type=system_type,
                     ))
 
-        total_cable_by_type: dict[str, float] = {}
+        cable_by_system: dict[str, float] = {}
         device_count_by_system: dict[str, int] = {}
 
         for run in cable_runs:
-            cable_type = run.get("cable_type", "CAT6 UTP")
             length = run.get("estimated_length_m", 0)
             system_type = run.get("system_type", "cctv")
-            total_cable_by_type[cable_type] = total_cable_by_type.get(cable_type, 0) + length
+            cable_by_system[system_type] = cable_by_system.get(system_type, 0) + length
             device_count_by_system[system_type] = device_count_by_system.get(system_type, 0) + 1
 
         for system_type, std_accessories in STANDARD_ACCESSORIES.items():
@@ -175,15 +174,13 @@ class CableCalculator:
                 if "per_device" in acc:
                     qty = acc["per_device"] * device_count
                 elif "per_10m_cable" in acc:
-                    total_cable = sum(
-                        length for ctype, length in total_cable_by_type.items()
-                    )
-                    qty = math.ceil(total_cable / 10) * acc["per_10m_cable"]
+                    system_cable = cable_by_system.get(system_type, 0)
+                    qty = math.ceil(system_cable / 10) * acc["per_10m_cable"]
                 elif "per_controller" in acc:
                     qty = max(1, device_count // 4) * acc["per_controller"]
                 elif "per_meter" in acc:
-                    total_cable = sum(total_cable_by_type.values())
-                    qty = math.ceil(total_cable)
+                    system_cable = cable_by_system.get(system_type, 0)
+                    qty = math.ceil(system_cable)
                 elif "per_4_devices" in acc:
                     qty = math.ceil(device_count / 4)
 

@@ -418,9 +418,39 @@ class ReportGenerator:
         ws.cell(row=row, column=2).number_format = CURRENCY_FORMAT
         row += 2
 
+        from app.services.cable_calculator import STANDARD_ACCESSORIES
+
+        ws.cell(row=row, column=1, value="ACCESSORY COSTS").font = SECTION_FONT
+        ws.cell(row=row, column=1).fill = SECTION_FILL
+        row += 1
+
+        accessory_total = 0.0
+        for acc in accessories:
+            acc_name = acc.get("name", "Unknown")
+            acc_qty = acc.get("quantity", 1)
+            acc_unit_price = acc.get("unit_price", 0)
+            if not acc_unit_price:
+                for sys_accs in STANDARD_ACCESSORIES.values():
+                    for sa in sys_accs:
+                        if sa.get("model") == acc.get("model_number"):
+                            acc_unit_price = sa.get("unit_price", 0)
+                            break
+            cost = acc_qty * acc_unit_price
+            accessory_total += cost
+            ws.cell(row=row, column=1, value=f"  {acc_name}")
+            ws.cell(row=row, column=2, value=cost).number_format = CURRENCY_FORMAT
+            ws.cell(row=row, column=1).border = THIN_BORDER
+            ws.cell(row=row, column=2).border = THIN_BORDER
+            row += 1
+
+        ws.cell(row=row, column=1, value="Accessory Subtotal:").font = Font(bold=True)
+        ws.cell(row=row, column=2, value=accessory_total).font = Font(bold=True)
+        ws.cell(row=row, column=2).number_format = CURRENCY_FORMAT
+        row += 2
+
         ws.cell(row=row, column=1, value="GRAND TOTAL").font = TOTAL_FONT
         ws.cell(row=row, column=1).fill = TOTAL_FILL
-        ws.cell(row=row, column=2, value=equipment_total + cable_total).font = TOTAL_FONT
+        ws.cell(row=row, column=2, value=equipment_total + cable_total + accessory_total).font = TOTAL_FONT
         ws.cell(row=row, column=2).fill = TOTAL_FILL
         ws.cell(row=row, column=2).number_format = CURRENCY_FORMAT
 
