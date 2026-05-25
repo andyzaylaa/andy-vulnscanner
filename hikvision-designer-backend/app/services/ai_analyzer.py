@@ -217,8 +217,8 @@ class AIAnalyzer:
                 {"from_area": "Server Room", "to_area": "Office Area A", "cable_type": "CAT6 UTP", "estimated_length_m": 35, "purpose": "IP Cameras x2", "system_type": "cctv"},
                 {"from_area": "Server Room", "to_area": "Office Area B", "cable_type": "CAT6 UTP", "estimated_length_m": 35, "purpose": "IP Cameras x2", "system_type": "cctv"},
                 {"from_area": "Server Room", "to_area": "Parking Area", "cable_type": "CAT6 FTP Outdoor", "estimated_length_m": 80, "purpose": "Outdoor cameras x4", "system_type": "cctv"},
-                {"from_area": "Fire Panel", "to_area": "All Areas", "cable_type": "Fire Rated 2C 1.5mm", "estimated_length_m": 200, "purpose": "Smoke detector loop", "system_type": "fire"},
-                {"from_area": "Sound Amplifier", "to_area": "Main Corridor", "cable_type": "Speaker Cable 2C 1.5mm", "estimated_length_m": 60, "purpose": "PA speakers", "system_type": "sound"},
+                {"from_area": "Fire Panel", "to_area": "All Areas", "cable_type": "Fire rated 2C 1.5mm", "estimated_length_m": 200, "purpose": "Smoke detector loop", "system_type": "fire"},
+                {"from_area": "Sound Amplifier", "to_area": "Main Corridor", "cable_type": "Speaker cable 2C 1.5mm", "estimated_length_m": 60, "purpose": "PA speakers", "system_type": "sound"},
             ],
             "summary": "Comprehensive security system design covering CCTV surveillance with IP cameras, biometric access control at critical points, parking barrier gate, video intercom at main entrance, fire detection throughout, and PA system in common areas. Total of 15 cameras, 2 access control points, 1 barrier gate, 1 video intercom, 8 smoke detectors, and 3 PA speakers recommended.",
         }
